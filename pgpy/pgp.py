@@ -71,6 +71,7 @@ from .packet.packets import SKESessionKeyV4
 from .packet.types import Opaque
 
 from .types import Armorable
+from .types import ASCIIArmor
 from .types import Fingerprint
 from .types import ParentRef
 from .types import PGPObject
@@ -84,7 +85,7 @@ __all__ = ['PGPSignature',
            'PGPKeyring']
 
 
-class PGPSignature(Armorable, ParentRef, PGPObject):
+class PGPSignature(ASCIIArmor, ParentRef, PGPObject):
     @property
     def __sig__(self):
         return self._signature.signature.__sig__()
@@ -496,7 +497,7 @@ class PGPSignature(Armorable, ParentRef, PGPObject):
         return onepass
 
     def parse(self, packet):
-        unarmored = self.ascii_unarmor(packet)
+        unarmored = Armorable.ascii_unarmor(packet)
         data = unarmored['body']
 
         if unarmored['magic'] is not None and unarmored['magic'] != 'SIGNATURE':
@@ -691,7 +692,7 @@ class PGPUID(ParentRef):
         raise NotImplementedError
 
 
-class PGPMessage(Armorable, PGPObject):
+class PGPMessage(ASCIIArmor, PGPObject):
     @staticmethod
     def dash_unescape(text):
         return re.subn(r'^- -', '-', text, flags=re.MULTILINE)[0]
@@ -981,7 +982,7 @@ class PGPMessage(Armorable, PGPObject):
                 # message is definitely UTF-8 already
                 format = 'u'
 
-            elif cls.is_ascii(message):
+            elif Armorable.is_ascii(message):
                 # message is probably text
                 format = 't'
 
@@ -1092,7 +1093,7 @@ class PGPMessage(Armorable, PGPObject):
         return decmsg
 
     def parse(self, packet):
-        unarmored = self.ascii_unarmor(packet)
+        unarmored = Armorable.ascii_unarmor(packet)
         data = unarmored['body']
 
         if unarmored['magic'] is not None and unarmored['magic'] not in ['MESSAGE', 'SIGNATURE']:
@@ -1118,7 +1119,7 @@ class PGPMessage(Armorable, PGPObject):
                 self |= Packet(data)
 
 
-class PGPKey(Armorable, ParentRef, PGPObject):
+class PGPKey(ASCIIArmor, ParentRef, PGPObject):
     """
     11.1.  Transferable Public Keys
 
@@ -2241,7 +2242,7 @@ class PGPKey(Armorable, ParentRef, PGPObject):
         return decmsg
 
     def parse(self, data):
-        unarmored = self.ascii_unarmor(data)
+        unarmored = Armorable.ascii_unarmor(data)
         data = unarmored['body']
 
         if unarmored['magic'] is not None and 'KEY' not in unarmored['magic']:

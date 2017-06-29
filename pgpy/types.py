@@ -25,7 +25,8 @@ from .decorators import sdproperty
 
 from .errors import PGPError
 
-__all__ = ['Armorable',
+__all__ = ['ASCIIArmor',
+           'Armorable',
            'ParentRef',
            'PGPObject',
            'Field',
@@ -43,15 +44,79 @@ if six.PY2:
     re.ASCII = 0
 
 
-class Armorable(six.with_metaclass(abc.ABCMeta)):
+class ASCIIArmor(six.with_metaclass(abc.ABCMeta)):
+    __armor_fmt = '-----BEGIN PGP {block_type}-----\n' \
+                  '{headers}\n' \
+                  '{packet}\n' \
+                  '={crc}\n' \
+                  '-----END PGP {block_type}-----\n'
+
+    @property
+    def charset(self):
+        return self.ascii_headers.get('Charset', 'utf-8')
+
+    @charset.setter
+    def charset(self, encoding):
+        self.ascii_headers['Charset'] = codecs.lookup(encoding).name
+
+    @abc.abstractproperty
+    def magic(self):
+        """The magic string identifier for the current PGP type"""
+
+    @classmethod
+    def from_file(cls, filename):
+        with open(filename, 'rb') as file:
+            obj = cls()
+            data = bytearray(os.path.getsize(filename))
+            file.readinto(data)
+
+        po = obj.parse(data)
+
+        if po is not None:
+            return (obj, po)
+
+        return obj  # pragma: no cover
+
+    @classmethod
+    def from_blob(cls, blob):
+        obj = cls()
+        if (not isinstance(blob, six.binary_type)) and (not isinstance(blob, bytearray)):
+            po = obj.parse(bytearray(blob, 'latin-1'))
+
+        else:
+            po = obj.parse(bytearray(blob))
+
+        if po is not None:
+            return (obj, po)
+
+        return obj  # pragma: no cover
+
+    def __init__(self):
+        super(ASCIIArmor, self).__init__()
+        self.ascii_headers = collections.OrderedDict()
+        self.ascii_headers['Version'] = 'PGPy v' + __version__  # Default value
+
+    def __str__(self):
+        payload = base64.b64encode(self.__bytes__()).decode('latin-1')
+        payload = '\n'.join(payload[i:(i + 64)] for i in range(0, len(payload), 64))
+
+        return self.__armor_fmt.format(
+            block_type=self.magic,
+            headers=''.join('{key}: {val}\n'.format(key=key, val=val) for key, val in self.ascii_headers.items()),
+            packet=payload,
+            crc=base64.b64encode(PGPObject.int_to_bytes(Armorable.crc24(self.__bytes__()), 3)).decode('latin-1')
+        )
+
+    def __copy__(self):
+        obj = self.__class__()
+        obj.ascii_headers = self.ascii_headers.copy()
+
+        return obj
+
+
+class Armorable(object):
     __crc24_init = 0x0B704CE
     __crc24_poly = 0x1864CFB
-
-    __armor_fmt = '-----BEGIN PGP {block_type}-----\n' \
-                    '{headers}\n' \
-                    '{packet}\n' \
-                    '={crc}\n' \
-                    '-----END PGP {block_type}-----\n'
 
     # the re.VERBOSE flag allows for:
     #  - whitespace is ignored except when in a character class or escaped
@@ -74,14 +139,6 @@ class Armorable(six.with_metaclass(abc.ABCMeta)):
                          # finally, capture the armor tail line, which must match the armor header line
                          ^-{5}END\ PGP\ (?P=magic)-{5}(?:\r?\n)?
                          """, flags=re.MULTILINE | re.VERBOSE)
-
-    @property
-    def charset(self):
-        return self.ascii_headers.get('Charset', 'utf-8')
-
-    @charset.setter
-    def charset(self, encoding):
-        self.ascii_headers['Charset'] = codecs.lookup(encoding).name
 
     @staticmethod
     def is_ascii(text):
@@ -176,60 +233,6 @@ class Armorable(six.with_metaclass(abc.ABCMeta)):
                     crc ^= Armorable.__crc24_poly
 
         return crc & 0xFFFFFF
-
-    @abc.abstractproperty
-    def magic(self):
-        """The magic string identifier for the current PGP type"""
-
-    @classmethod
-    def from_file(cls, filename):
-        with open(filename, 'rb') as file:
-            obj = cls()
-            data = bytearray(os.path.getsize(filename))
-            file.readinto(data)
-
-        po = obj.parse(data)
-
-        if po is not None:
-            return (obj, po)
-
-        return obj  # pragma: no cover
-
-    @classmethod
-    def from_blob(cls, blob):
-        obj = cls()
-        if (not isinstance(blob, six.binary_type)) and (not isinstance(blob, bytearray)):
-            po = obj.parse(bytearray(blob, 'latin-1'))
-
-        else:
-            po = obj.parse(bytearray(blob))
-
-        if po is not None:
-            return (obj, po)
-
-        return obj  # pragma: no cover
-
-    def __init__(self):
-        super(Armorable, self).__init__()
-        self.ascii_headers = collections.OrderedDict()
-        self.ascii_headers['Version'] = 'PGPy v' + __version__  # Default value
-
-    def __str__(self):
-        payload = base64.b64encode(self.__bytes__()).decode('latin-1')
-        payload = '\n'.join(payload[i:(i + 64)] for i in range(0, len(payload), 64))
-
-        return self.__armor_fmt.format(
-            block_type=self.magic,
-            headers=''.join('{key}: {val}\n'.format(key=key, val=val) for key, val in self.ascii_headers.items()),
-            packet=payload,
-            crc=base64.b64encode(PGPObject.int_to_bytes(self.crc24(self.__bytes__()), 3)).decode('latin-1')
-        )
-
-    def __copy__(self):
-        obj = self.__class__()
-        obj.ascii_headers = self.ascii_headers.copy()
-
-        return obj
 
 
 class ParentRef(object):
