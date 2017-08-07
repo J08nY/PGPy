@@ -1617,7 +1617,6 @@ class PGPKey(Armorable, ParentRef, PGPObject):
                 # embedded signatures don't need to be explicitly copied
                 continue
 
-            print(len(key._signatures))
             key |= copy.copy(sig)
 
         return key
