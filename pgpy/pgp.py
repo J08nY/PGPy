@@ -86,6 +86,7 @@ __all__ = ['PGPSignature',
 
 class PGPSignature(Armorable, ParentRef, PGPObject):
     _revocation_key = collections.namedtuple('revocation_key', ['keyclass','algorithm', 'fingerprint'])
+    _reason_for_revocation = collections.namedtuple('ReasonForRevocation', ['code', 'comment'])
 
     @property
     def __sig__(self):
@@ -264,6 +265,13 @@ class PGPSignature(Armorable, ParentRef, PGPObject):
         """
         return list(self._revocation_key(rk.keyclass, rk.algorithm, rk.fingerprint)
                     for rk in self._signature.subpackets['RevocationKey'])
+
+    @property
+    def revocation_reason(self):
+        if 'ReasonForRevocation' in self._signature.subpackets:
+            subpacket = next(iter(self._signature.subpackets['ReasonForRevocation']))
+            return self._reason_for_revocation(subpacket.code, subpacket.string)
+        return None
 
     @property
     def signer(self):
