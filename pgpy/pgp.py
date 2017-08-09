@@ -78,6 +78,7 @@ from .types import SignatureVerification
 from .types import SorteDeque
 
 __all__ = ['PGPSignature',
+           'PGPDetachedSignature',
            'PGPUID',
            'PGPMessage',
            'PGPKey',
@@ -548,6 +549,77 @@ class PGPSignature(Armorable, ParentRef, PGPObject):
             raise ValueError('Expected: Signature. Got: {:s}'.format(pkt.__class__.__name__))
 
 
+class PGPDetachedSignature(Armorable, PGPObject):
+    @property
+    def magic(self):
+        return 'SIGNATURE'
+
+    @property
+    def signatures(self):
+        return list(self._signatures)
+
+    @property
+    def signers(self):
+        return set(m.signer for m in self._signatures)
+
+    def __init__(self):
+        super(PGPDetachedSignature, self).__init__()
+        self._signatures = SorteDeque()
+
+    def __iter__(self):
+        for sig in self._signatures:
+            yield sig
+
+    def __or__(self, other):
+        if isinstance(other, PGPDetachedSignature):
+            for sig in other:
+                self._signatures.insort(sig)
+            return self
+
+        if isinstance(other, Signature):
+            other = PGPSignature() | other
+
+        if isinstance(other, PGPSignature):
+            self._signatures.insort(other)
+            return self
+
+        if isinstance(other, OnePassSignature):
+            return self
+
+        raise NotImplementedError(str(type(other)))
+
+    def __copy__(self):
+        detached = PGPDetachedSignature()
+        for sig in self._signatures:
+            detached |=  copy.copy(sig)
+        return detached
+
+    def __bytearray__(self):
+        _bytes = bytearray()
+        for sig in self:
+            _bytes += sig.__bytearray__()
+        return _bytes
+
+    def parse(self, packet):
+        unarmored = self.ascii_unarmor(packet)
+        data = unarmored['body']
+
+        if unarmored['magic'] is not None and unarmored['magic'] != 'SIGNATURE':
+            raise ValueError('Expected: SIGNATURE. Got: {}'.format(str(unarmored['magic'])))
+
+        if unarmored['headers'] is not None:
+            self.ascii_headers = unarmored['headers']
+
+        pkt = Packet(data)
+        while pkt.header.tag == PacketTag.Signature and not isinstance(pkt, Opaque):
+            self |= PGPSignature() | pkt
+            if len(data) == 0:
+                break
+            pkt = Packet(data)
+        else:
+            raise ValueError('Expected: Signature. Got: {:s}'.format(pkt.__class__.__name__))
+
+
 class PGPUID(ParentRef):
     @property
     def __sig__(self):
@@ -809,6 +881,13 @@ class PGPMessage(Armorable, PGPObject):
         return set(m.signer for m in self._signatures)
 
     @property
+    def detached_signature(self):
+        _sig = PGPDetachedSignature()
+        for sig in self._signatures:
+            _sig |= sig
+        return _sig
+
+    @property
     def type(self):
         ##TODO: it might be better to use an Enum for the output of this
         if isinstance(self._message, (six.string_types, six.binary_type, bytearray)):
@@ -936,6 +1015,11 @@ class PGPMessage(Armorable, PGPObject):
 
         if isinstance(other, PGPSignature):
             self._signatures.insort(other)
+            return self
+
+        if isinstance(other, PGPDetachedSignature):
+            for sig in other:
+                self._signatures.insort(sig)
             return self
 
         if isinstance(other, (PKESessionKey, SKESessionKey)):
@@ -2183,7 +2267,7 @@ class PGPKey(Armorable, ParentRef, PGPObject):
         # some type checking
         if not isinstance(subject, (type(None), PGPMessage, PGPKey, PGPUID, PGPSignature, six.string_types, bytes, bytearray)):
             raise TypeError("Unexpected subject value: {:s}".format(str(type(subject))))
-        if not isinstance(signature, (type(None), PGPSignature)):
+        if not isinstance(signature, (type(None), PGPSignature, PGPDetachedSignature)):
             raise TypeError("Unexpected signature value: {:s}".format(str(type(signature))))
 
         def _filter_sigs(sigs):
@@ -2206,8 +2290,13 @@ class PGPKey(Armorable, ParentRef, PGPObject):
                 # subkey binding signatures
                 sspairs += [ (sig, subkey) for subkey in subject.subkeys.values() for sig in _filter_sigs(subkey.__sig__) ]
 
-        elif signature.signer in {self.fingerprint.keyid} | set(self.subkeys):
+        elif isinstance(signature, PGPSignature) and signature.signer in {self.fingerprint.keyid} | set(self.subkeys):
             sspairs += [(signature, subject)]
+
+        elif isinstance(signature, PGPDetachedSignature):
+            for sig in signature:
+                if sig.signer in {self.fingerprint.keyid} | set(self.subkeys):
+                    sspairs += [(sig, subject)]
 
         if len(sspairs) == 0:
             raise PGPError("No signatures to verify")

@@ -12,6 +12,7 @@ from pgpy.constants import SignatureType
 from pgpy.pgp import PGPKey
 from pgpy.pgp import PGPMessage
 from pgpy.pgp import PGPSignature
+from pgpy.pgp import PGPDetachedSignature
 from pgpy.types import Armorable
 
 blocks = sorted(glob.glob('tests/testdata/blocks/*.asc'))
@@ -101,6 +102,9 @@ block_attrs = {
          ('message',       "This is stored, literally\\!\n"),
          ('signers',       {'2A834D8E5918E886', 'A5DCDC966453140E'}),
          ('type',          'cleartext'),],
+
+    'tests/testdata/blocks/detached.twosigs.asc':
+        [('signers', {'2A834D8E5918E886', 'A5DCDC966453140E'}),],
 
     'tests/testdata/blocks/message.encrypted.asc':
         [('encrypters',    {'EEE097A017B979CA'}),
@@ -302,7 +306,10 @@ class TestBlocks(object):
         with open(block) as bf:
             bc = bf.read()
 
-        if 'SIGNATURE' in bc.splitlines()[0]:
+        if block in glob.glob('tests/testdata/blocks/detached.*'):
+            p = PGPDetachedSignature()
+
+        elif 'SIGNATURE' in bc.splitlines()[0]:
             p = PGPSignature()
 
         elif 'KEY' in bc.splitlines()[0]:

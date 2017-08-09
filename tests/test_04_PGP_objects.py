@@ -9,6 +9,7 @@ from pgpy import PGPKey
 from pgpy import PGPKeyring
 from pgpy import PGPMessage
 from pgpy import PGPSignature
+from pgpy import PGPDetachedSignature
 from pgpy import PGPUID
 from pgpy.packet import Packet, CompressedData
 from pgpy.types import Fingerprint, Armorable
@@ -52,6 +53,20 @@ class TestPGPMessage(object):
 
         assert len(msg_packets) == len(packets)
         assert all(isinstance(pkt, Packet) for pkt in msg_packets)
+
+
+class TestPGPDetachedSignature(object):
+    @pytest.mark.parametrize('msgfile', _msgfiles, ids=[os.path.basename(f) for f in _msgfiles])
+    def test_detached_sig_property(self, msgfile):
+        msg = PGPMessage.from_file(msgfile)
+        detached = msg.detached_signature
+        for sig in detached:
+            assert sig in msg.signatures
+
+    def test_from_file(self):
+        detached = PGPDetachedSignature.from_file('tests/testdata/blocks/detached.twosigs.asc')
+        signatures = list(detached)
+        assert len(signatures) == 2
 
 
 @pytest.fixture
